@@ -1,0 +1,18 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+/tmp/
+/target/
+Gemfile.lock
+
+# Native extension build artifacts
+/lib/padded_cell/**/*.bundle
+/lib/padded_cell/**/*.so
+/lib/padded_cell/**/*.dll
+/ext/**/Makefile
+/ext/**/target/
+*.gem
+.dictator/

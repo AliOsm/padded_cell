@@ -1,0 +1,3 @@
+UserTest	test_valid	10	12
+UserTest	test_predicate?	14	16
+UserTest	test_private_still_listed	25	27

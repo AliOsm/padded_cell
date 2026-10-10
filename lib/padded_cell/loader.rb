@@ -1,0 +1,82 @@
+# frozen_string_literal: true
+
+module PaddedCell
+  # A test file that would not load.
+  class LoadFailure < StandardError; end
+
+  # Loads test files once, in the runner, so every worker and cell starts
+  # from the same preloaded (copy-on-write) process.
+  module Loader
+    # Test helpers require minitest/autorun (or Rails' equivalent): its
+    # at_exit would run the whole suite again, unisolated.
+    module NoAutorun
+      def autorun = nil
+    end
+
+    module_function
+
+    def call(files, seed:)
+      Minitest.singleton_class.prepend(NoAutorun)
+      Minitest.seed = seed
+      # What `rake test` and `rails test` put on the load path.
+      %w[test lib].each do |dir|
+        path = File.expand_path(dir)
+        $LOAD_PATH.unshift(path) if File.directory?(path) && !$LOAD_PATH.include?(path)
+      end
+      files.each { load_file(it) }
+    end
+
+    def load_file(file)
+      require file
+    rescue ScriptError, StandardError => e
+      raise LoadFailure, "#{file}: #{e.class}: #{e.message}"
+    end
+
+    # [klass, method_name] for every loaded test, the way Minitest finds them.
+    def tests
+      Minitest::Runnable.runnables.flat_map do |klass|
+        klass.runnable_methods.map { [klass, it] }
+      rescue NotImplementedError
+        []
+      end
+    end
+  end
+
+  # Which loaded tests run: Minitest's --include/--exclude, plus file:line.
+  class Filter
+    def initialize(selection, refs, include: nil, exclude: nil)
+      @selection = selection
+      @include = pattern(include)
+      @exclude = pattern(exclude)
+      @ends = refs.to_h { [[it.file, it.start_line], it.end_line] }
+      @selected = selection.files.to_h { [it, true] }
+    end
+
+    def call(klass, name)
+      id = "#{klass}##{name}"
+      return false if @include && !matches?(@include, name, id)
+      return false if @exclude && matches?(@exclude, name, id)
+
+      !@selection.line_filtered? || line_selected?(klass, name)
+    end
+
+    private
+
+    # "/re/" is a Regexp, anything else an exact name, as in Minitest.
+    def pattern(value)
+      match = value.is_a?(String) && %r{\A/(.*)/\z}.match(value)
+      match ? Regexp.new(match[1]) : value
+    end
+
+    def matches?(pattern, name, id) = [name, id].any? { pattern === it }
+
+    # With file:line arguments, a test runs when its file was named and its
+    # definition overlaps a requested line, or its file was named whole.
+    def line_selected?(klass, name)
+      file, line = klass.instance_method(name).source_location
+      return false unless file && @selected[file]
+
+      @selection.covers?(file, line..@ends.fetch([file, line], line))
+    end
+  end
+end

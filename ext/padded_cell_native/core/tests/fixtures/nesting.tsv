@@ -1,0 +1,5 @@
+Outer::Inner::BaseTest	test_inherited	10	12
+Outer::Inner::BaseTest::NestedTest	test_nested	23	29
+Outer::Inner::BaseTest	test_after_nested	32	34
+Something::Deep::ThingTest	test_deep	40	40
+LoopTest	test_in_block	49	49

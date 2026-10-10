@@ -1,0 +1,164 @@
+name: Release gems
+
+# Builds the source gem (it compiles the extension at install) and one
+# precompiled gem per supported platform, installs each in a clean
+# environment (the platform gems without Rust or a compiler), and attaches
+# them to the GitHub release. `rake gem:push_all` publishes.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  source:
+    name: source gem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - uses: dtolnay/rust-toolchain@1.99
+      - run: bundle exec rake gem:source
+      - name: Compiles the extension at install and loads it
+        run: |
+          gem install --no-document pkg/padded_cell-*.gem
+          cd /tmp && ruby -rpadded_cell -e 'puts PaddedCellNative.version'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gem-source
+          path: pkg/*.gem
+          if-no-files-found: error
+
+  # The extension needs glibc 2.34 (its newest symbol), not trixie's 2.41.
+  # Alpine builds the musl gems.
+  linux:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: x86_64-linux-gnu, runner: ubuntu-latest, image: "ruby:4.0-trixie" }
+          - { platform: aarch64-linux-gnu, runner: ubuntu-26.04-arm, image: "ruby:4.0-trixie" }
+          - { platform: x86_64-linux-musl, runner: ubuntu-latest, image: "ruby:4.0-alpine" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: seuros/setup-upkg@master
+      - name: Build
+        run: sh tools/build_native_gem.sh ${{ matrix.platform }}
+      - name: Installs without Rust and loads the extension
+        run: |
+          mv "$HOME/.cargo" "$HOME/.cargo.off"
+          gem install --no-document pkg/padded_cell-*-${{ matrix.platform }}.gem
+          cd /tmp && ruby -rpadded_cell -e 'puts PaddedCellNative.version'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gem-${{ matrix.platform }}
+          path: pkg/*-${{ matrix.platform }}.gem
+          if-no-files-found: error
+
+  # GitHub runs JavaScript actions (checkout, upload-artifact) in Alpine
+  # containers on x64 only, so this one builds through docker run; the build
+  # script installs upkg itself.
+  linux-arm64-musl:
+    name: aarch64-linux-musl
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: docker run --rm -v "$PWD:/src" -w /src ruby:4.0-alpine tools/build_native_gem.sh aarch64-linux-musl
+      - name: Installs without Rust and loads the extension
+        run: |
+          docker run --rm -v "$PWD/pkg:/pkg:ro" ruby:4.0-alpine sh -c '
+            gem install --no-document /pkg/padded_cell-*-aarch64-linux-musl.gem && cd /tmp &&
+            ruby -rpadded_cell -e "puts PaddedCellNative.version"'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gem-aarch64-linux-musl
+          path: pkg/*-aarch64-linux-musl.gem
+          if-no-files-found: error
+
+  macos:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: arm64-darwin, runner: macos-latest }
+          - { platform: x86_64-darwin, runner: macos-26-intel }
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - uses: dtolnay/rust-toolchain@1.99
+      - run: bundle exec rake "gem:native[${{ matrix.platform }}]"
+      - name: Installs without a compiler and loads the extension
+        run: |
+          export GEM_HOME="$(mktemp -d)" GEM_PATH=
+          PATH="$(dirname "$(which ruby)"):/usr/bin:/bin" gem install --no-document pkg/padded_cell-*-${{ matrix.platform }}.gem
+          cd /tmp && ruby -rpadded_cell -e 'puts PaddedCellNative.version'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gem-${{ matrix.platform }}
+          path: pkg/*-${{ matrix.platform }}.gem
+          if-no-files-found: error
+
+  freebsd:
+    name: FreeBSD 15.1
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          usesh: true
+          copyback: true
+          prepare: |
+            fetch -qo /tmp/upkg-install.sh https://raw.githubusercontent.com/seuros/upkg/master/install.sh
+            sh /tmp/upkg-install.sh
+            upkg install ruby40 git curl llvm gmake
+            printf '%s\n' '#!/bin/sh' 'exec ruby40 -e "require %q(rubygems/gem_runner); Gem::GemRunner.new.run(ARGV)" -- "$@"' > /usr/local/bin/gem
+            chmod +x /usr/local/bin/gem
+            ln -sf ruby40 /usr/local/bin/ruby
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99
+          run: |
+            . "$HOME/.cargo/env"
+            LIBCLANG_PATH="$(ls -d /usr/local/llvm*/lib | sort -V | tail -1)"
+            export LIBCLANG_PATH
+            gem install bundler --no-document
+            bundle install
+            bundle exec rake gem:native
+            mv "$HOME/.cargo" "$HOME/.cargo.off"
+            gem install --no-document pkg/padded_cell-*-freebsd-*.gem
+            cd /tmp && ruby -rpadded_cell -e 'puts PaddedCellNative.version'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gem-freebsd
+          path: pkg/*-freebsd-*.gem
+          if-no-files-found: error
+
+  attach:
+    needs: [source, linux, linux-arm64-musl, macos, freebsd]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: gems
+          merge-multiple: true
+      - run: ls -l gems
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: gems/*.gem

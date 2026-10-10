@@ -1,0 +1,6 @@
+Admin::UsersControllerTest	test_index_lists_users	5	8
+Admin::UsersControllerTest	test_odd_whitespace_and_newlines	10	12
+Admin::UsersControllerTest	test_no_block	14	14
+Admin::UsersControllerTest	test_parenthesized	32	32
+TopLevelTest	test_absolute_name	37	39
+Admin::NestedPathTest	test_path	43	43
