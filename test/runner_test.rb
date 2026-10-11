@@ -160,6 +160,14 @@ class RunnerTest < Minitest::Test
     run = padded_cell('--no-timings', '-n', '/upcase|reverse/', '-e', 'test_reverse', suite: 'basic')
 
     assert_equal [1, 1, 0, 0, 0], run.summary
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_include_matching_a_failure_fails
+    run = padded_cell('--no-timings', '-n', 'test_failure', suite: 'basic')
+
+    assert_equal [1, 1, 1, 0, 0], run.summary
+    assert_equal 1, run.exitstatus
   end
 
   def test_include_matching_nothing_fails

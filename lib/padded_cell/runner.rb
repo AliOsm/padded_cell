@@ -70,6 +70,7 @@ module PaddedCell
       timings = Timings.load(options[:timings])
       batches = Scheduler.batches(tests.map { |klass, _| klass.to_s }, durations: ids.map { timings[it] },
                                                                       seed: options[:seed], shard: options[:shard])
+      nothing_ran = batches.empty?
       reporter = build_reporter
       reporter.start
       retried = []
@@ -78,7 +79,7 @@ module PaddedCell
       report_asylum(retried)
       Timings.save(options[:timings], timings)
       after_run
-      finish(reporter, interrupted, batches.empty?)
+      finish(reporter, interrupted, nothing_ran)
     end
 
     # Yields each result as it arrives. With --asylum a failure is held back:
