@@ -277,10 +277,11 @@ class RunnerTest < Minitest::Test
   end
 
   def test_list_filters_without_loading_files
-    run = padded_cell('--list', '-n', '/test_/', suite: 'broken')
+    run = padded_cell('--list', '-n', '/also/', suite: 'broken')
 
-    assert_empty run.out
+    assert_equal ['test/broken_test.rb:13 BrokenTest#test_also_found'], run.out.lines(chomp: true)
     assert_equal 0, run.exitstatus
+    assert_empty padded_cell('--list', '-e', '/found/', suite: 'broken').out
   end
 
   def test_list_shards_partition_filtered_tests
