@@ -6,6 +6,7 @@ require_relative '../padded_cell'
 require_relative 'results'
 require_relative 'cell'
 require_relative 'pool'
+require_relative 'asylum'
 require_relative 'loader'
 require_relative 'timings'
 require_relative 'reporters'
@@ -18,7 +19,7 @@ module PaddedCell
   class Runner
     DEFAULTS = {
       paths: [], jobs: Etc.nprocessors, seed: nil, include: nil, exclude: nil, shard: [0, 1],
-      isolation: nil, timeout: nil, fail_fast: false, verbose: false, show_skips: false,
+      isolation: nil, timeout: nil, asylum: nil, fail_fast: false, verbose: false, show_skips: false,
       list: false, junit: nil, json: nil, timings: 'tmp/padded_cell/timings.tsv', io: $stdout
     }.freeze
 
@@ -71,35 +72,91 @@ module PaddedCell
                                                                       seed: options[:seed], shard: options[:shard])
       reporter = build_reporter
       reporter.start
-      interrupted = dispatch(tests, batches, reporter) { |index, result| timings[ids[index]] = result.time }
+      retried = []
+      interrupted = dispatch(tests, batches, reporter, retried) { |index, result| timings[ids[index]] = result.time }
       reporter.report
+      report_asylum(retried)
       Timings.save(options[:timings], timings)
       after_run
       finish(reporter, interrupted, batches.empty?)
     end
 
-    # Yields each result after reporting it. True when interrupted.
-    def dispatch(tests, batches, reporter)
-      pool = nil
-      on_result = lambda do |index, result|
+    # Yields each result as it arrives. With --asylum a failure is held back:
+    # only its final result, after the retries, is reported. True when
+    # interrupted.
+    def dispatch(tests, batches, reporter, retried)
+      held = {}
+      record = lambda do |index, result|
         reporter.prerecord(*tests[index])
         reporter.record(result)
-        yield index, result
-        pool&.stop! if options[:fail_fast] && !result.passed? && !result.skipped?
+        retried << result if result.metadata? && (result.metadata[:flaky] || result.metadata[:asylum])
       end
       pool = Pool.new(tests, jobs: options[:jobs], isolation: options[:isolation], seed: options[:seed],
                              timeout: options[:timeout])
-      pool.run(batches, &on_result)
+      pool.run(batches) do |index, result|
+        yield index, result
+        failed = failed?(result)
+        options[:asylum] && failed ? held[index] = result : record.call(index, result)
+        pool.stop! if options[:fail_fast] && failed
+      end
+      retry_held(tests, held, record)
       false
     rescue Interrupt
       warn 'Interrupted. Exiting...'
+      # Failures still waiting for a retry are failures.
+      held.each { |index, result| record.call(index, result) }
       true
+    end
+
+    def retry_held(tests, held, record)
+      return if held.empty?
+
+      asylum = Asylum.new(tests, attempts: options[:asylum], seed: options[:seed], timeout: options[:timeout])
+      asylum.call(held) do |index, result|
+        held.delete(index)
+        record.call(index, result)
+      end
+    end
+
+    def failed?(result) = !result.passed? && !result.skipped?
+
+    # After Minitest's summary: what --asylum found, attempt by attempt.
+    def report_asylum(retried)
+      flaky, failing = retried.partition { it.metadata[:flaky] }
+      report_flaky(flaky) if flaky.any?
+      report_failing(failing) if failing.any?
+    end
+
+    def report_flaky(flaky)
+      io = options[:io]
+      tests = flaky.size == 1 ? '1 test' : "#{flaky.size} tests"
+      io.puts "\nYou're not crazy, the world is. #{tests} failed, then passed:"
+      width = flaky.flat_map { it.metadata[:flaky][:history] }.map { it[:seed].to_s.size }.max
+      flaky.each do |result|
+        info = result.metadata[:flaky]
+        io.puts "\n  #{result.klass}##{result.name}"
+        info[:history].each do |attempt|
+          io.puts "    seed #{attempt[:seed].to_s.ljust(width)}  #{attempt_line(attempt, info[:cause])}"
+        end
+      end
+    end
+
+    def attempt_line(attempt, cause)
+      return "passed, alone → #{cause}" if attempt[:outcome] == 'passed'
+
+      attempt[:alone] ? "#{attempt[:outcome]} (alone)" : attempt[:outcome]
+    end
+
+    def report_failing(failing)
+      io = options[:io]
+      io.puts "\nIt's not the world, it's the test:"
+      failing.each { io.puts "  #{it.klass}##{it.name} failed all #{it.metadata[:asylum][:attempts]} attempts" }
     end
 
     def build_reporter
       reporter = Minitest::CompositeReporter.new
       minitest_options = {
-        io: options[:io], seed: options[:seed], args: "--seed #{options[:seed]} --isolation #{options[:isolation]}",
+        io: options[:io], seed: options[:seed], args: run_options,
         verbose: options[:verbose], show_skips: options[:show_skips]
       }
       reporter << Minitest::SummaryReporter.new(options[:io], minitest_options)
@@ -111,6 +168,12 @@ module PaddedCell
       reporter << Reporters::JUnit.new(options[:junit]) if options[:junit]
       reporter << Reporters::JSONLines.new(options[:json]) if options[:json]
       reporter
+    end
+
+    # What a rerun needs to reproduce this run's order and settings.
+    def run_options
+      args = "--seed #{options[:seed]} --isolation #{options[:isolation]}"
+      options[:asylum] ? "#{args} --asylum=#{options[:asylum]}" : args
     end
 
     # Minitest.after_run blocks, which autorun would have called.

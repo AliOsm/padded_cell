@@ -66,6 +66,10 @@ module PaddedCell
         options[:timeout] = positive(it)
       end
       opts.on('--fail-fast', 'Stop dispatching after the first failure') { options[:fail_fast] = true }
+      opts.on('--asylum[=N]', Integer, 'Retry failed tests up to N times (default 2) after the run, alone, ' \
+                                       'each in a fresh cell; report the flaky ones') do
+        options[:asylum] = it.nil? ? 2 : positive(it)
+      end
       opts.on('--list', 'List the tests that would run (static, loads nothing)') { options[:list] = true }
     end
 

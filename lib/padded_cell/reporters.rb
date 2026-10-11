@@ -36,6 +36,12 @@ module PaddedCell
       end
 
       def relative(file) = file.delete_prefix("#{Dir.pwd}/")
+
+      # --asylum's report on a test that passed on retry, if it did.
+      def flaky(result) = result.metadata? ? result.metadata[:flaky] : nil
+
+      # --asylum's attempts at a test that never passed.
+      def asylum(result) = result.metadata? ? result.metadata[:asylum] : nil
     end
 
     # JUnit XML, as read by GitHub, GitLab, Jenkins and friends.
@@ -67,8 +73,18 @@ module PaddedCell
         file, line = file_and_line(result)
         attributes = %(classname="#{escape(result.klass)}" name="#{escape(result.name)}" file="#{escape(file)}" ) +
                      %(line="#{line}" time="#{format('%.6f', result.time)}" assertions="#{result.assertions}")
-        body = outcome(result)
+        body = outcome(result) + flaky_failure(result)
         body.empty? ? %(    <testcase #{attributes}/>\n) : %(    <testcase #{attributes}>\n#{body}    </testcase>\n)
+      end
+
+      # Surefire's element for a test that failed, then passed on retry.
+      def flaky_failure(result)
+        info = flaky(result)
+        return '' unless info
+
+        first = info[:first_failure]
+        %(      <flakyFailure type="#{escape(first[:type])}" message="#{escape(first[:message])}">) +
+          %(#{escape(info[:cause])}</flakyFailure>\n)
       end
 
       def outcome(result)
@@ -98,8 +114,9 @@ module PaddedCell
         {
           id: "#{result.klass}##{result.name}", class: result.klass, name: result.name, file:, line:,
           status: status(result), time: result.time, assertions: result.assertions,
-          failures: result.failures.map { { type: it.result_label, message: it.message.scrub } }
-        }
+          failures: result.failures.map { { type: it.result_label, message: it.message.scrub } },
+          flaky: flaky(result), asylum: asylum(result)
+        }.compact
       end
     end
   end

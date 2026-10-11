@@ -2,6 +2,7 @@
 
 require_relative 'test_helper'
 require 'json'
+require 'padded_cell/asylum'
 
 class RunnerTest < Minitest::Test
   include CLIHelper
@@ -51,6 +52,57 @@ class RunnerTest < Minitest::Test
       assert_includes run.out, 'LateError: defined in the worker'
       assert_includes run.out, 'Late::NestedError: nested, defined in the worker'
     end
+  end
+
+  # Without --asylum, a flaky test fails the run like any other failure.
+  def test_flaky_tests_fail_without_asylum
+    run = flaky_run
+
+    assert_equal [4, 4, 3, 0, 0], run.summary
+    assert_equal 1, run.exitstatus
+  end
+
+  def test_asylum_retries_and_reports_the_flaky_tests
+    Dir.mktmpdir do |dir|
+      json = File.join(dir, 'results.jsonl')
+      junit = File.join(dir, 'junit.xml')
+      run = flaky_run('--asylum', '--json', json, '--junit', junit)
+      retry_seed = PaddedCell::Asylum.retry_seed(unlucky_seed, 2)
+
+      assert_equal [4, 4, 1, 0, 0], run.summary, run.out
+      assert_equal 1, run.exitstatus, 'a real failure stays one'
+      assert_includes run.out, "You're not crazy, the world is. 2 tests failed, then passed:"
+      assert_attempts run.out, 'test_passes_when_retried',
+                      ['lost the race', "passed, alone → #{PaddedCell::Asylum::ALONE}"]
+      assert_attempts run.out, 'test_depends_on_the_seed',
+                      ['unlucky seed.', 'unlucky seed. (alone)', "passed, alone → #{PaddedCell::Asylum::RESEEDED}"],
+                      seeds: [unlucky_seed, unlucky_seed, retry_seed]
+      assert_includes run.out, "It's not the world, it's the test:\n  FlakyTest#test_always_fails failed all 3 attempts"
+
+      entries = File.readlines(json).map { JSON.parse(it) }.to_h { [it['name'], it] }
+
+      assert_equal [3, retry_seed], entries['test_depends_on_the_seed']['flaky'].values_at('attempts', 'seed')
+      assert_equal 2, entries['test_passes_when_retried']['flaky']['attempts']
+      assert_equal 3, entries['test_always_fails']['asylum']['attempts']
+      assert_includes File.read(junit), '<flakyFailure type="Minitest::Assertion" message="lost the race">'
+    end
+  end
+
+  def test_asylum_passes_the_run_when_every_failure_recovers
+    run = flaky_run('--asylum', '-e', 'test_always_fails')
+
+    assert_equal [3, 3, 0, 0, 0], run.summary
+    assert_equal 0, run.exitstatus
+  end
+
+  # --asylum=1 is one retry, with the run's own seed: not enough for a test
+  # that needs another seed.
+  def test_asylum_attempts_are_bounded
+    run = flaky_run('--asylum=1')
+
+    assert_equal [4, 4, 2, 0, 0], run.summary
+    assert_includes run.out, "You're not crazy, the world is. 1 test failed, then passed:"
+    assert_includes run.out, '  FlakyTest#test_depends_on_the_seed failed all 2 attempts'
   end
 
   # Classes run whole, as Minitest and Rails run them: per-class setup such
@@ -177,6 +229,29 @@ class RunnerTest < Minitest::Test
   end
 
   private
+
+  # A seed whose first rand(2) is 1, and whose second retry seed gives 0.
+  def unlucky_seed
+    @unlucky_seed ||= (1..).find do |seed|
+      Random.new(seed).rand(2) == 1 && Random.new(PaddedCell::Asylum.retry_seed(seed, 2)).rand(2).zero?
+    end
+  end
+
+  # The attempt lines of one flaky test, in order, each with its seed.
+  def assert_attempts(out, test, outcomes, seeds: [unlucky_seed] * outcomes.size)
+    block = out[/^  FlakyTest##{test}\n((?:    seed .*\n)+)/, 1]
+
+    refute_nil block, "no attempts listed for #{test} in:\n#{out}"
+    lines = block.lines(chomp: true).map { it.sub(/\A    seed /, '').split(/ {2,}/, 2) }
+
+    assert_equal seeds.map(&:to_s).zip(outcomes), lines
+  end
+
+  def flaky_run(*args)
+    Dir.mktmpdir do |dir|
+      padded_cell('--no-timings', '-s', unlucky_seed.to_s, *args, suite: 'flaky', env: { 'FLAKY_DIR' => dir })
+    end
+  end
 
   def leaky(seed, isolation)
     padded_cell('--no-timings', '-v', '-j', '1', '-s', seed.to_s, '--isolation', isolation, suite: 'leaky')

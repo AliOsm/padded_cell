@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `--asylum[=N]`: retry failed tests (N times, default 2) after the run,
+  alone and in fresh cells. Tests that pass on retry count as passed and are
+  reported as flaky, with the likely cause (timing and shared state, or
+  randomness and order) and their first failure; JUnit gets
+  `<flakyFailure>`, JSON a `flaky` field.
+
 ## 0.1.0 (2026-10-11)
 
 First release, for CRuby 4.0+ and Minitest 6 on Linux, macOS and FreeBSD: a

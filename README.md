@@ -70,6 +70,7 @@ $ padded_cell -n /refund/ -e test_slow     # Minitest's --include / --exclude
 $ padded_cell -j 8 --seed 1234             # 8 workers, reproducible order
 $ padded_cell --timeout 30                 # kill and fail anything running 30s
 $ padded_cell --fail-fast
+$ padded_cell --asylum                     # retry failures; report the flaky ones (see below)
 $ padded_cell --list                       # what would run, without loading anything
 $ padded_cell --shard 2/4                  # CI: the second quarter of the classes
 $ padded_cell --junit tmp/junit.xml --json tmp/results.jsonl
@@ -112,6 +113,38 @@ The default is `test`, except when Active Record fixtures are loaded: a fork
 discards Active Record's connection pool, and every test would reload its
 fixtures, so those suites default to `worker`. The `Run options:` line shows
 which one a run uses; `--isolation` overrides it.
+
+### Flaky tests
+
+`--asylum[=N]` gives failed tests up to N more attempts (default 2) once the
+run is over: one test at a time, each in a fresh cell. A test that passes on
+retry counts as passed, but padded_cell shows every attempt, its seed, and
+what made the difference:
+
+```console
+4 runs, 4 assertions, 1 failures, 0 errors, 0 skips
+
+You're not crazy, the world is. 2 tests failed, then passed:
+
+  FlakyTest#test_passes_when_retried
+    seed 1      lost the race
+    seed 1      passed, alone → timing, contention or state left by other tests
+
+  FlakyTest#test_depends_on_the_seed
+    seed 1      unlucky seed.
+    seed 1      unlucky seed. (alone)
+    seed 15472  passed, alone → randomness or test order
+
+It's not the world, it's the test:
+  FlakyTest#test_always_fails failed all 3 attempts
+```
+
+The first retry keeps the run's seed and runs alone, so passing there points
+at timing, contention or leftover state; later retries change the seed, so
+passing only there points at randomness or order. A test that fails every
+attempt keeps its first failure, and the run fails. JUnit reports carry a
+`<flakyFailure>` per flaky test; JSON lines carry the attempts in a `flaky`
+field, or an `asylum` field for a test that never passed.
 
 ### Hooks
 
