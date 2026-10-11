@@ -24,7 +24,7 @@ module PaddedCell
       parser(options).parse!(argv)
       options[:paths] = argv
       Runner.new(**options).run
-    rescue OptionParser::ParseError, ArgumentError, LoadFailure, Unsupported, SystemCallError => e
+    rescue OptionParser::ParseError, ArgumentError, RegexpError, LoadFailure, Unsupported, SystemCallError => e
       warn "padded_cell: #{e.message}"
       2
     end

@@ -35,7 +35,9 @@ class CLITest < Minitest::Test
       [%w[--isolation cage], 'invalid argument: --isolation cage'],
       [%w[-j 0], 'invalid argument: -j 0 (must be positive)'],
       [%w[--timeout -1], 'invalid argument: --timeout -1.0 (must be positive)'],
-      [%w[test/missing_test.rb], 'no such test file: test/missing_test.rb']
+      [%w[test/missing_test.rb], 'no such test file: test/missing_test.rb'],
+      [['-n', '/[/'], 'padded_cell: premature end of char-class: /[/'],
+      [['--list', '-e', '/[/'], 'padded_cell: premature end of char-class: /[/']
     ].each do |args, message|
       run = padded_cell(*args, suite: 'basic')
 
