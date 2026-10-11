@@ -7,6 +7,13 @@
   reported as flaky, with the likely cause (timing and shared state, or
   randomness and order) and their first failure; JUnit gets
   `<flakyFailure>`, JSON a `flaky` field.
+- A `cleanup` hook that raises fails the run (exit 1), `--asylum` retries
+  included. It exited 0 when the tests passed.
+- A passing run filtered with `--name` exits 0: it exited 1, reporting that
+  nothing ran.
+- `--list` applies `--name` and `--exclude`, before `--shard`, as a run does.
+- An invalid `--name` or `--exclude` regexp is a usage error (exit 2), not a
+  crash.
 
 ## 0.1.0 (2026-10-11)
 

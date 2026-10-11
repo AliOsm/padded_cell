@@ -158,7 +158,9 @@ PaddedCell.cleanup { |worker| Database.drop("app_test_#{worker}") }
 ```
 
 `before_fork` runs in the runner, `after_fork` and `cleanup` once per worker
-(`0...jobs`). Cells run no hooks: they inherit their worker's state.
+(`0...jobs`). Cells run no hooks: they inherit their worker's state. A
+failing `after_fork` fails every test of its worker; a failing `cleanup`
+fails the run, even when every test passed.
 
 ## Rails
 
