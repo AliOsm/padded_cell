@@ -134,8 +134,19 @@ class RunnerTest < Minitest::Test
       run = padded_cell('--no-timings', '-j', '3', suite: 'hooks', env: { 'HOOK_LOG' => log })
 
       assert_equal [8, 8, 0, 0, 0], run.summary
+      assert_equal 0, run.exitstatus
       assert_equal ['after_fork 0', 'after_fork 1', 'after_fork 2', 'cleanup 0', 'cleanup 1', 'cleanup 2'],
                    File.readlines(log, chomp: true).sort
+    end
+  end
+
+  def test_cleanup_errors_fail_the_run
+    %w[test worker].each do |isolation|
+      run = padded_cell('--no-timings', '--isolation', isolation, '-j', '2', suite: 'cleanup_error')
+
+      assert_equal [2, 2, 0, 0, 0], run.summary
+      assert_equal 1, run.exitstatus, "#{isolation}: #{run.out}#{run.err}"
+      assert_includes run.err, 'worker 0 failed: RuntimeError: cleanup failed'
     end
   end
 

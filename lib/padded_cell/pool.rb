@@ -47,6 +47,8 @@ module PaddedCell
       shutdown(force: !$!.nil?)
     end
 
+    def success? = @success
+
     # Dispatch nothing more; tests already running still report.
     def stop!
       @queue.clear
@@ -196,7 +198,7 @@ module PaddedCell
     def shutdown(force:)
       live = Array(@slots).select(&:pid)
       live.each { Process.kill(:KILL, it.pid) } if force
-      live.each { reap(it) }
+      @success = live.map { reap(it) }.all?(&:success?)
     end
   end
 end

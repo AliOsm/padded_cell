@@ -74,17 +74,17 @@ module PaddedCell
       reporter = build_reporter
       reporter.start
       retried = []
-      interrupted = dispatch(tests, batches, reporter, retried) { |index, result| timings[ids[index]] = result.time }
+      status = dispatch(tests, batches, reporter, retried) { |index, result| timings[ids[index]] = result.time }
       reporter.report
       report_asylum(retried)
       Timings.save(options[:timings], timings)
       after_run
-      finish(reporter, interrupted, nothing_ran)
+      finish(reporter, status, nothing_ran)
     end
 
     # Yields each result as it arrives. With --asylum a failure is held back:
-    # only its final result, after the retries, is reported. True when
-    # interrupted.
+    # only its final result, after the retries, is reported. Returns 1 when a
+    # worker failed (its cleanup hook), 130 when interrupted, 0 otherwise.
     def dispatch(tests, batches, reporter, retried)
       held = {}
       record = lambda do |index, result|
@@ -101,12 +101,12 @@ module PaddedCell
         pool.stop! if options[:fail_fast] && failed
       end
       retry_held(tests, held, record)
-      false
+      pool.success? ? 0 : 1
     rescue Interrupt
       warn 'Interrupted. Exiting...'
       # Failures still waiting for a retry are failures.
       held.each { |index, result| record.call(index, result) }
-      true
+      130
     end
 
     def retry_held(tests, held, record)
@@ -182,8 +182,8 @@ module PaddedCell
       Minitest.class_variable_get(:@@after_run).reverse_each(&:call)
     end
 
-    def finish(reporter, interrupted, nothing_ran)
-      return 130 if interrupted
+    def finish(reporter, status, nothing_ran)
+      return status unless status.zero?
       if nothing_ran && options[:include]
         warn "Nothing ran for filter: #{options[:include]}"
         return 1
