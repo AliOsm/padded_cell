@@ -173,9 +173,9 @@ Needs Rust 1.99+ (`mise install` reads `mise.toml`).
 
 ```console
 bundle install
-rake test:all        # cargo test, then the Ruby suite (compiles the extension first)
-rake test            # the Ruby suite only
-rake dogfood         # this suite, run by padded_cell
+rake test:all        # cargo test, then this suite run by padded_cell itself
+rake dogfood         # this suite, run by padded_cell (compiles the extension first)
+rake test            # this suite on plain Minitest, for when padded_cell itself is broken
 rake lint            # dictator, cargo fmt --check, clippy
 ```
 

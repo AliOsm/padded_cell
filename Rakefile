@@ -16,6 +16,8 @@ RbSys::ExtensionTask.new('padded_cell_native', GEMSPEC) do |ext|
   ext.lib_dir = 'lib/padded_cell'
 end
 
+# Plain Minitest: for when padded_cell itself is broken. CI and test:all run
+# the suite with padded_cell (dogfood).
 Minitest::TestTask.create(:test) do |t|
   t.test_globs = ['test/*_test.rb'] # test/fixtures holds suites padded_cell runs
 end
@@ -28,11 +30,11 @@ namespace :test do
     sh 'cargo', 'test', '--manifest-path', CARGO_MANIFEST, '--package', 'padded_cell'
   end
 
-  desc 'The Rust crate, then the Ruby suite'
-  task all: %i[rust test]
+  desc 'The Rust crate, then this suite run by padded_cell itself'
+  task all: %i[rust dogfood]
 end
 
-desc 'Run this suite with padded_cell itself'
+desc 'Run this suite with padded_cell itself, from this checkout'
 task dogfood: :compile do
   # No paths: test/**/*_test.rb minus test/fixtures, whose suites the tests run
   sh FileUtils::RUBY, '-Ilib', 'exe/padded_cell'

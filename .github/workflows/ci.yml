@@ -58,8 +58,8 @@ jobs:
           bundler-cache: true
       - uses: dtolnay/rust-toolchain@1.99
       - uses: Swatinem/rust-cache@v2
-      # rake test compiles the extension first; padded_cell refuses to load without it.
-      - run: bundle exec rake test
+      # padded_cell runs its own suite (dogfood compiles the extension first).
+      - run: bundle exec rake dogfood
 
   freebsd:
     name: FreeBSD 15.1 (native)
@@ -90,4 +90,4 @@ jobs:
             ruby -v
             gem install bundler --no-document
             bundle install
-            bundle exec rake test
+            bundle exec rake dogfood
