@@ -25,7 +25,11 @@ module PaddedCell
       @attempts = attempts
       @seed = seed
       @timeout = timeout
+      @success = true
     end
+
+    # False when a retry's worker failed (its cleanup hook).
+    def success? = @success
 
     # failures: {test index => first failing result}. Yields (index, result)
     # once per test, with its final result. Its metadata holds the attempts:
@@ -63,6 +67,7 @@ module PaddedCell
         passed << index
         yield index, result
       end
+      @success &&= pool.success?
       passed
     end
 

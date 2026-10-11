@@ -150,6 +150,17 @@ class RunnerTest < Minitest::Test
     end
   end
 
+  # --asylum retries in workers of its own: their cleanup counts too.
+  def test_cleanup_errors_of_asylum_retries_fail_the_run
+    Dir.mktmpdir do |dir|
+      run = padded_cell('--no-timings', '--asylum', suite: 'retry_cleanup', env: { 'FLAKY_DIR' => dir })
+
+      assert_equal [1, 1, 0, 0, 0], run.summary, run.out + run.err
+      assert_equal 1, run.exitstatus
+      assert_includes run.err, 'worker 0 failed: RuntimeError: retry cleanup failed'
+    end
+  end
+
   def test_rails_parallelization_hooks_and_worker_ids
     hook_log do |log|
       run = padded_cell('--no-timings', '-j', '2', suite: 'rails', env: { 'HOOK_LOG' => log })

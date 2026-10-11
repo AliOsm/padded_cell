@@ -100,8 +100,8 @@ module PaddedCell
         options[:asylum] && failed ? held[index] = result : record.call(index, result)
         pool.stop! if options[:fail_fast] && failed
       end
-      retry_held(tests, held, record)
-      pool.success? ? 0 : 1
+      retries_ok = retry_held(tests, held, record)
+      pool.success? && retries_ok ? 0 : 1
     rescue Interrupt
       warn 'Interrupted. Exiting...'
       # Failures still waiting for a retry are failures.
@@ -109,14 +109,16 @@ module PaddedCell
       130
     end
 
+    # False when a retry's worker failed.
     def retry_held(tests, held, record)
-      return if held.empty?
+      return true if held.empty?
 
       asylum = Asylum.new(tests, attempts: options[:asylum], seed: options[:seed], timeout: options[:timeout])
       asylum.call(held) do |index, result|
         held.delete(index)
         record.call(index, result)
       end
+      asylum.success?
     end
 
     def failed?(result) = !result.passed? && !result.skipped?
