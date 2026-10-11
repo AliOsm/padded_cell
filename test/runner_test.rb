@@ -211,6 +211,65 @@ class RunnerTest < Minitest::Test
     assert_equal all.sort, shards.sort
   end
 
+  def test_list_filters_method_names
+    run = padded_cell('--list', '-n', 'test_upcase', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:6 StringTest#test_upcase'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_filters_qualified_names
+    run = padded_cell('--list', '-n', 'StringTest#test_reverse', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:10 StringTest#test_reverse'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_filters_names_with_regex
+    run = padded_cell('--list', '-n', '/^StringTest#/', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:6 StringTest#test_upcase',
+                  'test/string_test.rb:10 StringTest#test_reverse'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_excludes_matching_names
+    run = padded_cell('--list', '-e', 'test_reverse', 'test/string_test.rb', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:6 StringTest#test_upcase'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_combines_include_and_exclude
+    run = padded_cell('--list', '-n', '/upcase|reverse/', '-e', 'test_reverse', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:6 StringTest#test_upcase'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_combines_name_and_line_filters
+    run = padded_cell('--list', '-n', '/upcase|reverse/', 'test/string_test.rb:11', suite: 'basic')
+
+    assert_equal ['test/string_test.rb:10 StringTest#test_reverse'], run.out.lines(chomp: true)
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_filters_without_loading_files
+    run = padded_cell('--list', '-n', '/test_/', suite: 'broken')
+
+    assert_empty run.out
+    assert_equal 0, run.exitstatus
+  end
+
+  def test_list_shards_partition_filtered_tests
+    shards = (1..3).flat_map do |index|
+      padded_cell('--list', '-n', '/addition|upcase/', '--shard', "#{index}/3", suite: 'basic').out.lines(chomp: true)
+    end
+
+    assert_equal ['test/math_test.rb:6 MathTest#test_addition',
+                  'test/string_test.rb:6 StringTest#test_upcase'], shards.sort
+  end
+
   def test_junit_and_json_reports
     Dir.mktmpdir do |dir|
       junit = File.join(dir, 'reports/junit.xml')

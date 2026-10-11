@@ -53,11 +53,15 @@ module PaddedCell
     end
 
     def call(klass, name)
+      matches_name?(klass, name) && (!@selection.line_filtered? || line_selected?(klass, name))
+    end
+
+    def matches_name?(klass, name)
       id = "#{klass}##{name}"
       return false if @include && !matches?(@include, name, id)
       return false if @exclude && matches?(@exclude, name, id)
 
-      !@selection.line_filtered? || line_selected?(klass, name)
+      true
     end
 
     private

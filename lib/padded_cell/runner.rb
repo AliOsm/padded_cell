@@ -34,7 +34,8 @@ module PaddedCell
     def run
       selection = Selection.parse(options[:paths])
       refs = Discovery.call(selection.files)
-      return list(selection, refs) if options[:list]
+      filter = Filter.new(selection, refs, include: options[:include], exclude: options[:exclude])
+      return list(selection, refs, filter) if options[:list]
       raise Unsupported, 'padded_cell needs fork, which this Ruby does not have' unless Process.respond_to?(:fork)
 
       Loader.call(selection.files, seed: options[:seed])
@@ -43,7 +44,6 @@ module PaddedCell
         ActiveSupportHooks.install
       end
       options[:isolation] ||= default_isolation
-      filter = Filter.new(selection, refs, include: options[:include], exclude: options[:exclude])
       execute(Loader.tests.select { filter.call(*it) })
     end
 
@@ -55,8 +55,8 @@ module PaddedCell
     def default_isolation = defined?(ActiveRecord::FixtureSet) ? :worker : :test
 
     # Tests as they would run (static discovery, no loading), in file order.
-    def list(selection, refs)
-      refs = refs.select { selection.covers?(it.file, it.lines) }
+    def list(selection, refs, filter)
+      refs = refs.select { selection.covers?(it.file, it.lines) && filter.matches_name?(it.class_name, it.name) }
       kept = Scheduler.batches(refs.map(&:class_name), seed: options[:seed], shard: options[:shard]).flatten.sort
       kept.each do |index|
         ref = refs[index]
